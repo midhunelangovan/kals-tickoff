@@ -1,0 +1,7 @@
+-keep class io.kals.tickoff.local.** { *; }
+-keepclassmembers class io.kals.tickoff.local.** { *; }
+-keep class fi.iki.elonen.** { *; }
+-keepclassmembers class fi.iki.elonen.** { *; }
+-keep class com.google.gson.** { *; }
+-keepclassmembers class com.google.gson.** { *; }
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
