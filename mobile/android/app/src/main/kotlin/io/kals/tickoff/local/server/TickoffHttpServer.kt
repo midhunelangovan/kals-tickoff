@@ -59,8 +59,12 @@ class TickoffHttpServer(
                 // GET /habits/score
                 method == Method.GET && (uri == "/habits/score" || uri == "/habits/score/") -> {
                     val dateParam = session.parameters["date"]?.firstOrNull()
+                    val startDateParam = session.parameters["startDate"]?.firstOrNull()
+                    val endDateParam = session.parameters["endDate"]?.firstOrNull()
                     val targetDate = dateParam?.let { LocalDate.parse(it, DATE_FORMAT) }
-                    val response = habitService.calculateHabitScore(targetDate)
+                    val startDate = startDateParam?.let { LocalDate.parse(it, DATE_FORMAT) }
+                    val endDate = endDateParam?.let { LocalDate.parse(it, DATE_FORMAT) }
+                    val response = habitService.calculateHabitScore(targetDate, startDate, endDate)
                     jsonResponse(Response.Status.OK, response)
                 }
 

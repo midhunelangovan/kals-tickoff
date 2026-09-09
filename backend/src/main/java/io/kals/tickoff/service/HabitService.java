@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.HashSet;
@@ -45,15 +47,43 @@ public class HabitService {
                 request.getDescription(),
                 request.getColor()
         );
+        String rawCreation = request.getCreatedAt() != null ? request.getCreatedAt() : request.getCreatedDate();
+        if (rawCreation != null && !rawCreation.trim().isEmpty()) {
+            habit.setCreatedAt(parseDateTime(rawCreation));
+        }
         Habit savedHabit = habitRepository.save(habit);
         return habitMapper.toCreatedResponse(savedHabit, 0, false);
+    }
+
+    private LocalDateTime parseDateTime(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return LocalDateTime.now();
+        String trimmed = raw.trim();
+        try {
+            return LocalDateTime.parse(trimmed, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+        } catch (Exception ignored) {}
+        try {
+            return LocalDateTime.parse(trimmed);
+        } catch (Exception ignored) {}
+        try {
+            return LocalDateTime.parse(trimmed, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        } catch (Exception ignored) {}
+        try {
+            if (trimmed.length() >= 10) {
+                String datePart = trimmed.substring(0, 10);
+                return LocalDate.parse(datePart, DateTimeFormatter.ofPattern("yyyy-MM-dd")).atStartOfDay();
+            }
+        } catch (Exception ignored) {}
+        return LocalDateTime.now();
     }
 
     @Transactional(readOnly = true)
     public List<HabitResponse> listHabits(LocalDate selectedDate) {
         LocalDate today = LocalDate.now();
         LocalDate effectiveSelectedDate = (selectedDate != null) ? selectedDate : today;
-        List<Habit> habits = habitRepository.findAllByArchivedFalseOrderBySortOrderAscCreatedAtDesc();
+        List<Habit> allHabits = habitRepository.findAllByArchivedFalseOrderBySortOrderAscCreatedAtDesc();
+
+        // Core rule: If habit exists, show it for every selected date (global habit list)
+        List<Habit> habits = allHabits;
 
         if (habits.isEmpty()) {
             return Collections.emptyList();
@@ -108,6 +138,11 @@ public class HabitService {
 
     @Transactional(readOnly = true)
     public HabitScoreResponse calculateHabitScore(LocalDate targetDate) {
+        return calculateHabitScore(targetDate, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public HabitScoreResponse calculateHabitScore(LocalDate targetDate, LocalDate periodStart, LocalDate periodEnd) {
         LocalDate today = LocalDate.now();
         LocalDate selectedDate = (targetDate != null) ? targetDate : today;
 
@@ -115,48 +150,66 @@ public class HabitService {
         if (activeHabits.isEmpty()) {
             return HabitScoreResponse.builder()
                     .date(selectedDate.toString())
+                    .startDate((periodStart != null ? periodStart : selectedDate).toString())
+                    .endDate((periodEnd != null ? periodEnd : selectedDate).toString())
                     .score(0.0)
                     .completed(0)
                     .total(0)
                     .expected(0)
+                    .dailyCompleted(0L)
+                    .dailyTotal(0L)
+                    .habitDaysCompleted(0L)
+                    .habitDaysTotal(0L)
+                    .habitsCount(0L)
                     .build();
         }
 
-        LocalDate endDate = selectedDate.isAfter(today) ? today : selectedDate;
+        LocalDate startDate = (periodStart != null) ? periodStart : selectedDate;
+        LocalDate endDate = (periodEnd != null) ? periodEnd : selectedDate;
 
-        long totalEligible = 0;
-        long totalCompleted = 0;
+        long trackedDays = ChronoUnit.DAYS.between(startDate, endDate) + 1;
+        long totalTrackedHabitDays = trackedDays > 0 ? activeHabits.size() * trackedDays : 0L;
 
         List<String> activeIds = activeHabits.stream().map(Habit::getId).toList();
+        Set<String> activeIdSet = new HashSet<>(activeIds);
         List<HabitCompletion> allCompletions = completionRepository.findByHabitIdInOrderByCompletionDateAsc(activeIds);
-        Map<String, List<LocalDate>> completionsByHabit = allCompletions.stream()
-                .collect(Collectors.groupingBy(HabitCompletion::getHabitId, Collectors.mapping(HabitCompletion::getCompletionDate, Collectors.toList())));
 
-        for (Habit habit : activeHabits) {
-            LocalDate startDate = habit.getCreatedAt().toLocalDate();
-            if (endDate.isBefore(startDate)) {
-                continue;
+        // Deduplicate using unique habit-day key: "${habitId}_${date}"
+        Set<String> completedKeys = new HashSet<>();
+        Set<String> selectedDateCompletions = new HashSet<>();
+
+        for (HabitCompletion comp : allCompletions) {
+            if (!activeIdSet.contains(comp.getHabitId())) continue;
+            LocalDate d = comp.getCompletionDate();
+            if (!d.isBefore(startDate) && !d.isAfter(endDate)) {
+                completedKeys.add(comp.getHabitId() + "_" + d.toString());
             }
-            long eligibleDays = ChronoUnit.DAYS.between(startDate, endDate) + 1;
-            totalEligible += eligibleDays;
-
-            List<LocalDate> completions = completionsByHabit.getOrDefault(habit.getId(), Collections.emptyList());
-            long completedInRange = completions.stream()
-                    .filter(d -> !d.isBefore(startDate) && !d.isAfter(endDate))
-                    .count();
-            totalCompleted += completedInRange;
+            if (d.equals(selectedDate)) {
+                selectedDateCompletions.add(comp.getHabitId());
+            }
         }
 
-        double score = totalEligible > 0
-                ? Math.round(((double) totalCompleted / (double) totalEligible) * 1000.0) / 10.0
+        long totalCompletedHabitDays = completedKeys.size();
+        long dailyCompleted = selectedDateCompletions.size();
+        long dailyApplicable = activeHabits.size();
+
+        double score = totalTrackedHabitDays > 0
+                ? Math.round(((double) totalCompletedHabitDays / (double) totalTrackedHabitDays) * 1000.0) / 10.0
                 : 0.0;
 
         return HabitScoreResponse.builder()
                 .date(selectedDate.toString())
+                .startDate(startDate.toString())
+                .endDate(endDate.toString())
                 .score(score)
-                .completed(totalCompleted)
-                .total(totalEligible)
-                .expected(totalEligible)
+                .completed(totalCompletedHabitDays)
+                .total(totalTrackedHabitDays)
+                .expected(totalTrackedHabitDays)
+                .dailyCompleted(dailyCompleted)
+                .dailyTotal(dailyApplicable)
+                .habitDaysCompleted(totalCompletedHabitDays)
+                .habitDaysTotal(totalTrackedHabitDays)
+                .habitsCount((long) activeHabits.size())
                 .build();
     }
 
@@ -253,13 +306,19 @@ public class HabitService {
             throw new ResourceNotFoundException("NOT_FOUND", "Habit not found: " + habitId);
         }
 
+        String trimmed = content != null ? content.trim() : "";
+        if (trimmed.isEmpty()) {
+            habitNoteRepository.deleteByHabitIdAndNoteDate(habitId, date);
+            return HabitNote.create(habitId, date, "");
+        }
+
         HabitNote note = habitNoteRepository.findByHabitIdAndNoteDate(habitId, date)
                 .map(existing -> {
-                    existing.setContent(content != null ? content.trim() : "");
+                    existing.setContent(trimmed);
                     existing.setUpdatedAt(java.time.LocalDateTime.now());
                     return existing;
                 })
-                .orElseGet(() -> HabitNote.create(habitId, date, content));
+                .orElseGet(() -> HabitNote.create(habitId, date, trimmed));
 
         return habitNoteRepository.save(note);
     }

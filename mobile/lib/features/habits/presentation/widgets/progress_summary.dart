@@ -18,7 +18,7 @@ class ProgressSummary extends ConsumerWidget {
     final progress = habitScore.total > 0
         ? (habitScore.score / 100.0).clamp(0.0, 1.0)
         : 0.0;
-    final scoreText = '${habitScore.score.toStringAsFixed(1)}%';
+    final scoreText = habitScore.scoreText;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -55,7 +55,7 @@ class ProgressSummary extends ConsumerWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${habitScore.completed} of ${habitScore.total} completed',
+                    '${habitScore.completedHabitDays} / ${habitScore.totalHabitDays} habit-days',
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w700,

@@ -16,6 +16,8 @@ class HabitCard extends ConsumerStatefulWidget {
   final ValueChanged<DateTime>? onSelectDate;
   final bool isSelected;
   final bool isSelectionMode;
+  final bool isReordering;
+  final int reorderIndex;
   final DateTime selectedDate;
 
   const HabitCard({
@@ -27,6 +29,8 @@ class HabitCard extends ConsumerStatefulWidget {
     this.onSelectDate,
     this.isSelected = false,
     this.isSelectionMode = false,
+    this.isReordering = false,
+    this.reorderIndex = 0,
     required this.selectedDate,
   });
 
@@ -226,7 +230,24 @@ class _HabitCardState extends ConsumerState<HabitCard>
                     const SizedBox(width: 8),
 
                     // Right action area
-                    if (!isSelectionMode) ...[
+                    if (widget.isReordering) ...[
+                      ReorderableDragStartListener(
+                        index: widget.reorderIndex,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: shades.lightBackground,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: shades.border, width: 1),
+                          ),
+                          child: Icon(
+                            Icons.drag_indicator_rounded,
+                            color: shades.primary,
+                            size: 26,
+                          ),
+                        ),
+                      ),
+                    ] else if (!isSelectionMode) ...[
                       // Small Daily Note button with note indicator 📝
                       IconButton(
                         padding: EdgeInsets.zero,

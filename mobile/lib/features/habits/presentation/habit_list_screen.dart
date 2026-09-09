@@ -15,8 +15,15 @@ import 'widgets/empty_habits_state.dart';
 import 'widgets/habit_card.dart';
 import 'widgets/progress_summary.dart';
 
-class HabitListScreen extends ConsumerWidget {
+class HabitListScreen extends ConsumerStatefulWidget {
   const HabitListScreen({super.key});
+
+  @override
+  ConsumerState<HabitListScreen> createState() => _HabitListScreenState();
+}
+
+class _HabitListScreenState extends ConsumerState<HabitListScreen> {
+  bool _isReorderMode = false;
 
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
@@ -132,7 +139,7 @@ class HabitListScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final habitsAsync = ref.watch(habitControllerProvider);
     final selectedDate = ref.watch(selectedDateProvider);
     final selectedHabitIds = ref.watch(selectedHabitIdsProvider);
@@ -180,45 +187,82 @@ class HabitListScreen extends ConsumerWidget {
                 const SizedBox(width: 8),
               ],
             )
-          : AppBar(
-              toolbarHeight: 76,
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    headerTitle,
+          : _isReorderMode
+              ? AppBar(
+                  toolbarHeight: 76,
+                  title: Text(
+                    'Reorder Habits',
                     style: TextStyle(
-                      fontSize: 28,
+                      fontSize: 24,
                       fontWeight: FontWeight.w800,
                       color: AppTheme.getTextPrimary(context),
-                      letterSpacing: -0.6,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    formattedFullDate,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.getTextSecondary(context),
+                  actions: [
+                    TextButton.icon(
+                      onPressed: () => setState(() => _isReorderMode = false),
+                      icon: Icon(Icons.check_rounded, color: shades.primary, size: 22),
+                      label: Text(
+                        'Done',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: shades.primary,
+                        ),
+                      ),
                     ),
+                    const SizedBox(width: 8),
+                  ],
+                )
+              : AppBar(
+                  toolbarHeight: 76,
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        headerTitle,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.getTextPrimary(context),
+                          letterSpacing: -0.6,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        formattedFullDate,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.getTextSecondary(context),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              actions: [
-                IconButton(
-                  icon: Icon(
-                    Icons.settings_outlined,
-                    color: AppTheme.getTextSecondary(context),
-                    size: 26,
-                  ),
-                  tooltip: 'Settings',
-                  onPressed: () => SettingsScreen.show(context),
+                  actions: [
+                    IconButton(
+                      icon: Icon(
+                        Icons.swap_vert_rounded,
+                        color: AppTheme.getTextSecondary(context),
+                        size: 26,
+                      ),
+                      tooltip: 'Reorder habits',
+                      onPressed: () => setState(() => _isReorderMode = true),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.settings_outlined,
+                        color: AppTheme.getTextSecondary(context),
+                        size: 26,
+                      ),
+                      tooltip: 'Settings',
+                      onPressed: () => SettingsScreen.show(context),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                 ),
-                const SizedBox(width: 8),
-              ],
-            ),
       body: Stack(
         children: [
           Column(
@@ -300,6 +344,40 @@ class HabitListScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
+                  );
+                }
+
+                if (_isReorderMode) {
+                  return ReorderableListView.builder(
+                    padding: const EdgeInsets.only(bottom: 96, top: 4),
+                    header: const ProgressSummary(),
+                    itemCount: habits.length,
+                    onReorder: (oldIndex, newIndex) {
+                      if (oldIndex < newIndex) {
+                        newIndex -= 1;
+                      }
+                      final mutableList = List<Habit>.from(habits);
+                      final item = mutableList.removeAt(oldIndex);
+                      mutableList.insert(newIndex, item);
+                      final ids = mutableList.map((h) => h.id).toList();
+                      ref.read(habitControllerProvider.notifier).reorderHabits(ids);
+                    },
+                    itemBuilder: (context, index) {
+                      final habit = habits[index];
+                      return HabitCard(
+                        key: ValueKey(habit.id),
+                        habit: habit,
+                        selectedDate: selectedDate,
+                        isSelected: false,
+                        isSelectionMode: false,
+                        isReordering: true,
+                        reorderIndex: index,
+                        onSelectDate: null,
+                        onTap: null,
+                        onLongPress: null,
+                        onToggle: () {},
+                      );
+                    },
                   );
                 }
 
@@ -392,7 +470,7 @@ class HabitListScreen extends ConsumerWidget {
       ),
     ],
   ),
-      floatingActionButton: isSelectionMode
+      floatingActionButton: (isSelectionMode || _isReorderMode)
           ? null
           : FloatingActionButton.extended(
               onPressed: () => AddHabitBottomSheet.show(context),

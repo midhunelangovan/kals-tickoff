@@ -43,8 +43,18 @@ class HabitDto {
 
     DateTime parsedCreatedAt;
     if (json['createdAt'] != null) {
+      final raw = json['createdAt'].toString().trim();
       try {
-        parsedCreatedAt = DateTime.parse(json['createdAt'] as String);
+        if (raw.length >= 10 && RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(raw)) {
+          final parts = raw.substring(0, 10).split('-');
+          parsedCreatedAt = DateTime(
+            int.parse(parts[0]),
+            int.parse(parts[1]),
+            int.parse(parts[2]),
+          );
+        } else {
+          parsedCreatedAt = DateTime.parse(raw);
+        }
       } catch (_) {
         parsedCreatedAt = DateTime.now();
       }
@@ -54,8 +64,18 @@ class HabitDto {
 
     DateTime? parsedSelectedDate;
     if (json['selectedDate'] != null) {
+      final raw = json['selectedDate'].toString().trim();
       try {
-        parsedSelectedDate = DateTime.parse(json['selectedDate'] as String);
+        if (raw.length >= 10 && RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(raw)) {
+          final parts = raw.substring(0, 10).split('-');
+          parsedSelectedDate = DateTime(
+            int.parse(parts[0]),
+            int.parse(parts[1]),
+            int.parse(parts[2]),
+          );
+        } else {
+          parsedSelectedDate = DateTime.parse(raw);
+        }
       } catch (_) {
         parsedSelectedDate = null;
       }
@@ -90,6 +110,14 @@ class HabitDto {
   }
 
   Habit toDomain() {
+    final Map<String, String> initialNotes = {};
+    if (selectedDate != null &&
+        hasNote &&
+        noteContent != null &&
+        noteContent!.trim().isNotEmpty) {
+      initialNotes[normalizeToLocalDateString(selectedDate!)] = noteContent!.trim();
+    }
+
     return Habit(
       id: id,
       name: name,
@@ -105,6 +133,7 @@ class HabitDto {
       sortOrder: sortOrder,
       hasNote: hasNote,
       noteContent: noteContent,
+      notesByDate: initialNotes,
     );
   }
 }
@@ -114,12 +143,16 @@ class CreateHabitRequestDto {
   final String icon;
   final String? description;
   final String? color;
+  final String? createdAt;
+  final String? createdDate;
 
   CreateHabitRequestDto({
     required this.name,
     this.icon = 'bolt',
     this.description,
     this.color,
+    this.createdAt,
+    this.createdDate,
   });
 
   Map<String, dynamic> toJson() {
@@ -132,6 +165,10 @@ class CreateHabitRequestDto {
     }
     if (color != null && color!.isNotEmpty) {
       map['color'] = color;
+    }
+    if (createdAt != null && createdAt!.isNotEmpty) {
+      map['createdAt'] = createdAt;
+      map['createdDate'] = createdDate ?? createdAt;
     }
     return map;
   }

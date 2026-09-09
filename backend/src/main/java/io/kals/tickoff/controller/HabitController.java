@@ -49,9 +49,17 @@ public class HabitController {
     public ResponseEntity<io.kals.tickoff.dto.HabitScoreResponse> getHabitScore(
             @RequestParam(name = "date", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-            LocalDate date
+            LocalDate date,
+            @RequestParam(name = "startDate", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate startDate,
+            @RequestParam(name = "endDate", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate endDate
     ) {
-        io.kals.tickoff.dto.HabitScoreResponse response = habitService.calculateHabitScore(date);
+        io.kals.tickoff.dto.HabitScoreResponse response = (startDate != null || endDate != null)
+                ? habitService.calculateHabitScore(date, startDate, endDate)
+                : habitService.calculateHabitScore(date);
         return ResponseEntity.ok(response);
     }
 

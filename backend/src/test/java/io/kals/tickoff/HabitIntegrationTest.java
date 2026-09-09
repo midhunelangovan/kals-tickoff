@@ -73,6 +73,10 @@ class HabitIntegrationTest {
         );
         String habitId = createdHabit.getId();
 
+        io.kals.tickoff.entity.Habit habitEntity = habitRepository.findById(habitId).orElseThrow();
+        habitEntity.setCreatedAt(threeDaysAgo.atStartOfDay());
+        habitRepository.save(habitEntity);
+
         // ----------------------------------------------------
         // Case 1: Today ✓, Yesterday ✓, 2 days ago ✓ -> Streak = 3
         // ----------------------------------------------------

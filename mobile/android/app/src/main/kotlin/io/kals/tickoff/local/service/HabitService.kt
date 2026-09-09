@@ -1,5 +1,6 @@
 package io.kals.tickoff.local.service
 
+import android.util.Log
 import io.kals.tickoff.local.dto.*
 import io.kals.tickoff.local.entity.CompletionEntity
 import io.kals.tickoff.local.entity.HabitEntity
@@ -15,6 +16,7 @@ class HabitService(
     private val streakService: StreakService
 ) {
     companion object {
+        private const val TAG = "HabitService"
         private val ISO_DT_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
         private val DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     }
@@ -27,7 +29,13 @@ class HabitService(
 
         val effectiveIcon = request.icon?.trim()?.takeIf { it.isNotEmpty() } ?: "bolt"
         val effectiveColor = request.color?.trim()?.takeIf { it.isNotEmpty() } ?: "#7C3AED"
-        val now = LocalDateTime.now()
+        
+        val rawCreation = request.createdAt ?: request.createdDate
+        val creationDateTime = if (!rawCreation.isNullOrBlank()) {
+            parseDateTime(rawCreation)
+        } else {
+            LocalDateTime.now()
+        }
 
         // Place new habit at the beginning (sort_order = 0)
         val existingHabits = repository.findAllByArchivedFalseOrderByCreatedAtDesc()
@@ -37,7 +45,7 @@ class HabitService(
             icon = effectiveIcon,
             description = request.description?.trim()?.takeIf { it.isNotEmpty() },
             color = effectiveColor,
-            createdAt = now,
+            createdAt = creationDateTime,
             archived = false,
             sortOrder = 0
         )
@@ -68,7 +76,9 @@ class HabitService(
     fun listHabits(selectedDate: LocalDate?): List<HabitResponse> {
         val today = LocalDate.now()
         val effectiveSelectedDate = selectedDate ?: today
-        val habits = repository.findAllByArchivedFalseOrderByCreatedAtDesc()
+        val allHabits = repository.findAllByArchivedFalseOrderByCreatedAtDesc()
+        // Core rule: If habit exists, show it for every selected date (global habit list)
+        val habits = allHabits
 
         if (habits.isEmpty()) {
             return emptyList()
@@ -118,7 +128,11 @@ class HabitService(
         }
     }
 
-    fun calculateHabitScore(targetDate: LocalDate?): HabitScoreResponse {
+    fun calculateHabitScore(
+        targetDate: LocalDate?,
+        periodStart: LocalDate? = null,
+        periodEnd: LocalDate? = null
+    ): HabitScoreResponse {
         val today = LocalDate.now()
         val selectedDate = targetDate ?: today
 
@@ -126,50 +140,81 @@ class HabitService(
         if (activeHabits.isEmpty()) {
             return HabitScoreResponse(
                 date = selectedDate.format(DATE_FORMAT),
+                startDate = (periodStart ?: selectedDate).format(DATE_FORMAT),
+                endDate = (periodEnd ?: selectedDate).format(DATE_FORMAT),
                 score = 0.0,
                 completed = 0,
                 total = 0,
-                expected = 0
+                expected = 0,
+                dailyCompleted = 0,
+                dailyTotal = 0,
+                habitDaysCompleted = 0,
+                habitDaysTotal = 0,
+                habitsCount = 0
             )
         }
 
-        val endDate = if (selectedDate.isAfter(today)) today else selectedDate
+        // If no explicit period is given, calculate for the selected date (single habit-day per active habit)
+        val startDate = periodStart ?: selectedDate
+        val endDate = periodEnd ?: selectedDate
 
-        var totalEligible = 0L
-        var totalCompleted = 0L
+        val trackedDays = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) + 1
+        val totalTrackedHabitDays = if (trackedDays > 0) activeHabits.size.toLong() * trackedDays else 0L
 
-        val habitIds = activeHabits.map { it.id }
-        val allCompletions = repository.findCompletionsByHabitIds(habitIds)
-        val completionsByHabit = allCompletions.groupBy { it.habitId }
+        val habitIds = activeHabits.map { it.id }.toSet()
+        val allCompletions = repository.findCompletionsByHabitIds(habitIds.toList())
 
-        for (habit in activeHabits) {
-            val startDate = habit.createdAt.toLocalDate()
-            if (endDate.isBefore(startDate)) {
-                continue
+        // Use Set of unique keys: "${habitId}_${completionDate}" for deduplication
+        val completedKeys = mutableSetOf<String>()
+        val selectedDateCompletions = mutableSetOf<String>()
+
+        for (comp in allCompletions) {
+            if (!habitIds.contains(comp.habitId)) continue
+            val d = comp.completionDate
+            if (!d.isBefore(startDate) && !d.isAfter(endDate)) {
+                completedKeys.add("${comp.habitId}_$d")
             }
-            val eligibleDays = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) + 1
-            totalEligible += eligibleDays
-
-            val completions = completionsByHabit[habit.id] ?: emptyList()
-            val completedInRange = completions.count {
-                !it.completionDate.isBefore(startDate) && !it.completionDate.isAfter(endDate)
+            if (d == selectedDate) {
+                selectedDateCompletions.add(comp.habitId)
             }
-            totalCompleted += completedInRange
         }
 
-        val score = if (totalEligible > 0L) {
-            val raw = (totalCompleted.toDouble() / totalEligible.toDouble()) * 100.0
+        val totalCompletedHabitDays = completedKeys.size.toLong()
+        val dailyCompletedCount = selectedDateCompletions.size.toLong()
+        val dailyApplicableCount = activeHabits.size.toLong()
+
+        val overallScore = if (totalTrackedHabitDays > 0L) {
+            val raw = (totalCompletedHabitDays.toDouble() / totalTrackedHabitDays.toDouble()) * 100.0
             Math.round(raw * 10.0) / 10.0
         } else {
             0.0
         }
 
+        Log.d(TAG, """
+            [HabitScore] Calculation:
+              Selected date: $selectedDate
+              Period: $startDate to $endDate (days: $trackedDays)
+              Active habits: ${activeHabits.map { it.name }}
+              Unique habit IDs: $habitIds
+              Unique habit-day keys: $completedKeys
+              Calculated numerator: $totalCompletedHabitDays
+              Calculated denominator: $totalTrackedHabitDays
+              Calculated percentage: ${if (overallScore % 1.0 == 0.0) "${overallScore.toInt()}%" else "${overallScore}%"}
+        """.trimIndent())
+
         return HabitScoreResponse(
             date = selectedDate.format(DATE_FORMAT),
-            score = score,
-            completed = totalCompleted,
-            total = totalEligible,
-            expected = totalEligible
+            startDate = startDate.format(DATE_FORMAT),
+            endDate = endDate.format(DATE_FORMAT),
+            score = overallScore,
+            completed = totalCompletedHabitDays,
+            total = totalTrackedHabitDays,
+            expected = totalTrackedHabitDays,
+            dailyCompleted = dailyCompletedCount,
+            dailyTotal = dailyApplicableCount,
+            habitDaysCompleted = totalCompletedHabitDays,
+            habitDaysTotal = totalTrackedHabitDays,
+            habitsCount = activeHabits.size.toLong()
         )
     }
 
@@ -295,17 +340,30 @@ class HabitService(
             throw NoSuchElementException("Habit not found: $habitId")
         }
 
-        val existing = repository.findNoteByHabitIdAndDate(habitId, date)
+        val trimmed = content.trim()
         val now = LocalDateTime.now()
+        val existing = repository.findNoteByHabitIdAndDate(habitId, date)
+
+        if (trimmed.isEmpty()) {
+            repository.deleteNoteByHabitIdAndDate(habitId, date)
+            return HabitNoteDto(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                habitId = habitId,
+                date = date.format(DATE_FORMAT),
+                content = "",
+                createdAt = (existing?.createdAt ?: now).format(ISO_DT_FORMAT),
+                updatedAt = now.format(ISO_DT_FORMAT)
+            )
+        }
 
         val entity = if (existing != null) {
-            existing.copy(content = content.trim(), updatedAt = now)
+            existing.copy(content = trimmed, updatedAt = now)
         } else {
             HabitNoteEntity(
                 id = UUID.randomUUID().toString(),
                 habitId = habitId,
                 noteDate = date,
-                content = content.trim(),
+                content = trimmed,
                 createdAt = now,
                 updatedAt = now
             )
@@ -417,14 +475,22 @@ class HabitService(
     }
 
     private fun parseDateTime(raw: String): LocalDateTime {
-        return try {
-            LocalDateTime.parse(raw, ISO_DT_FORMAT)
-        } catch (_: Exception) {
-            try {
-                LocalDateTime.parse(raw)
-            } catch (_: Exception) {
-                LocalDateTime.now()
+        val trimmed = raw.trim()
+        try {
+            return LocalDateTime.parse(trimmed, ISO_DT_FORMAT)
+        } catch (_: Exception) {}
+        try {
+            return LocalDateTime.parse(trimmed)
+        } catch (_: Exception) {}
+        try {
+            return LocalDateTime.parse(trimmed, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+        } catch (_: Exception) {}
+        try {
+            if (trimmed.length >= 10) {
+                val datePart = trimmed.substring(0, 10)
+                return LocalDate.parse(datePart, DATE_FORMAT).atStartOfDay()
             }
-        }
+        } catch (_: Exception) {}
+        return LocalDateTime.now()
     }
 }

@@ -162,12 +162,12 @@ class _EditHabitBottomSheetState extends ConsumerState<EditHabitBottomSheet> {
               const SizedBox(height: 16),
 
               // 2. Habit Name Input
-              const Text(
+              Text(
                 'Habit name',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: AppTheme.textSecondary,
+                  color: AppTheme.getTextSecondary(context),
                 ),
               ),
               const SizedBox(height: 8),
@@ -175,21 +175,34 @@ class _EditHabitBottomSheetState extends ConsumerState<EditHabitBottomSheet> {
                 controller: _textController,
                 textCapitalization: TextCapitalization.sentences,
                 maxLength: 100,
+                cursorColor: activeColor,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: AppTheme.getTextPrimary(context),
+                  fontWeight: FontWeight.w500,
+                ),
                 decoration: InputDecoration(
                   hintText: 'e.g. Morning Jog, Read 10 pages',
+                  hintStyle: TextStyle(
+                    color: AppTheme.getTextMuted(context),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w400,
+                  ),
                   filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
+                  fillColor: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF0F172A)
+                      : const Color(0xFFF8FAFC),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 14,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: AppTheme.borderColor),
+                    borderSide: BorderSide(color: AppTheme.getBorderColor(context)),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: AppTheme.borderColor),
+                    borderSide: BorderSide(color: AppTheme.getBorderColor(context)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),

@@ -6,7 +6,9 @@ data class CreateHabitRequest(
     @SerializedName("name") val name: String? = null,
     @SerializedName("icon") val icon: String? = "bolt",
     @SerializedName("description") val description: String? = null,
-    @SerializedName("color") val color: String? = "#7C3AED"
+    @SerializedName("color") val color: String? = "#7C3AED",
+    @SerializedName("createdAt") val createdAt: String? = null,
+    @SerializedName("createdDate") val createdDate: String? = null
 )
 
 data class UpdateHabitRequest(
@@ -50,10 +52,17 @@ data class CompletionResponse(
 
 data class HabitScoreResponse(
     @SerializedName("date") val date: String? = null,
+    @SerializedName("startDate") val startDate: String? = null,
+    @SerializedName("endDate") val endDate: String? = null,
     @SerializedName("score") val score: Double,
     @SerializedName("completed") val completed: Long,
     @SerializedName("total") val total: Long = 0,
-    @SerializedName("expected") val expected: Long = total
+    @SerializedName("expected") val expected: Long = total,
+    @SerializedName("dailyCompleted") val dailyCompleted: Long? = null,
+    @SerializedName("dailyTotal") val dailyTotal: Long? = null,
+    @SerializedName("habitDaysCompleted") val habitDaysCompleted: Long? = null,
+    @SerializedName("habitDaysTotal") val habitDaysTotal: Long? = null,
+    @SerializedName("habitsCount") val habitsCount: Long = 0
 )
 
 data class HabitNoteDto(

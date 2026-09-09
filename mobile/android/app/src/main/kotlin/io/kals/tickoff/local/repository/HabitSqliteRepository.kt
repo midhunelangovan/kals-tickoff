@@ -385,14 +385,19 @@ class HabitSqliteRepository(private val database: TickoffDatabase) {
     }
 
     private fun parseDateTime(raw: String): LocalDateTime {
-        return try {
-            LocalDateTime.parse(raw, DT_FORMAT)
-        } catch (_: Exception) {
-            try {
-                LocalDateTime.parse(raw)
-            } catch (_: Exception) {
-                LocalDateTime.now()
+        val trimmed = raw.trim()
+        try {
+            return LocalDateTime.parse(trimmed, DT_FORMAT)
+        } catch (_: Exception) {}
+        try {
+            return LocalDateTime.parse(trimmed)
+        } catch (_: Exception) {}
+        try {
+            if (trimmed.length >= 10) {
+                val datePart = trimmed.substring(0, 10)
+                return LocalDate.parse(datePart, DATE_FORMAT).atStartOfDay()
             }
-        }
+        } catch (_: Exception) {}
+        return LocalDateTime.now()
     }
 }

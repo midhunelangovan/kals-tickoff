@@ -96,4 +96,45 @@ void main() {
 
     verify(() => mockHabitRepository.deleteHabit('1')).called(1);
   });
+
+  testWidgets('ProgressSummary displays "64 / 128 habit-days" and "50%", never "habits"', (tester) async {
+    const score = HabitScore(
+      score: 50.0,
+      completed: 64,
+      total: 128,
+      habitDaysCompleted: 64,
+      habitDaysTotal: 128,
+      habitsCount: 2,
+    );
+
+    when(() => mockHabitRepository.getHabitScore(any()))
+        .thenAnswer((_) async => score);
+    when(() => mockHabitRepository.getHabits(date: any(named: 'date')))
+        .thenAnswer((_) async => [
+              Habit(
+                id: '1',
+                name: 'Walking',
+                createdAt: DateTime.now(),
+              ),
+            ]);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiHabitRepositoryProvider.overrideWithValue(mockHabitRepository),
+        ],
+        child: const HabitTrackerApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Verify Habit Score card
+    expect(find.text('HABIT SCORE'), findsOneWidget);
+    expect(find.text('50%'), findsOneWidget);
+    expect(find.text('64 / 128 habit-days'), findsOneWidget);
+
+    // MUST NEVER display "64 / 128 habits"
+    expect(find.text('64 / 128 habits'), findsNothing);
+  });
 }

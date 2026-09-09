@@ -32,12 +32,14 @@ class ApiHabitRepository implements HabitRepository {
     String icon = 'bolt',
     String? description,
     String? color,
+    DateTime? createdAt,
   }) async {
     final dto = await _apiService.createHabit(
       name,
       icon: icon,
       description: description,
       color: color,
+      createdAt: createdAt,
     );
     return dto.toDomain();
   }

@@ -31,9 +31,10 @@ class ThemeSettingsSheet extends ConsumerWidget {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Center(
               child: Container(
@@ -122,6 +123,7 @@ class ThemeSettingsSheet extends ConsumerWidget {
             const SizedBox(height: 24),
           ],
         ),
+      ),
       ),
     );
   }

@@ -11,7 +11,7 @@ class TickoffDatabase(context: Context) :
     companion object {
         private const val TAG = "TickoffDatabase"
         const val DATABASE_NAME = "tickoff.db"
-        const val DATABASE_VERSION = 4
+        const val DATABASE_VERSION = 5
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -20,6 +20,7 @@ class TickoffDatabase(context: Context) :
         migrateV2(db)
         migrateV3(db)
         migrateV4(db)
+        migrateV5(db)
         Log.i(TAG, "Database schema created successfully")
     }
 
@@ -28,7 +29,18 @@ class TickoffDatabase(context: Context) :
         if (oldVersion < 2) migrateV2(db)
         if (oldVersion < 3) migrateV3(db)
         if (oldVersion < 4) migrateV4(db)
+        if (oldVersion < 5) migrateV5(db)
         Log.i(TAG, "Database upgrade complete")
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        try {
+            cleanupDuplicateCompletions(db)
+            cleanupDuplicateNotes(db)
+        } catch (e: Exception) {
+            Log.w(TAG, "Non-critical cleanup warning onOpen: ${e.message}")
+        }
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -119,5 +131,37 @@ class TickoffDatabase(context: Context) :
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_notes_habit_id ON habit_notes (habit_id)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_notes_date ON habit_notes (note_date)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_notes_habit_date ON habit_notes (habit_id, note_date)")
+    }
+
+    /**
+     * V5: Safe deduplication for habit_completions and ensure index integrity.
+     */
+    private fun migrateV5(db: SQLiteDatabase) {
+        cleanupDuplicateCompletions(db)
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_completions_habit_date ON habit_completions (habit_id, completion_date)")
+    }
+
+    private fun cleanupDuplicateCompletions(db: SQLiteDatabase) {
+        // Keeps the earliest completion record for any (habit_id, completion_date)
+        db.execSQL("""
+            DELETE FROM habit_completions 
+            WHERE rowid NOT IN (
+                SELECT MIN(rowid) 
+                FROM habit_completions 
+                GROUP BY habit_id, completion_date
+            )
+        """.trimIndent())
+    }
+
+    private fun cleanupDuplicateNotes(db: SQLiteDatabase) {
+        // Keeps the latest updated note record for any (habit_id, note_date)
+        db.execSQL("""
+            DELETE FROM habit_notes 
+            WHERE rowid NOT IN (
+                SELECT MAX(rowid) 
+                FROM habit_notes 
+                GROUP BY habit_id, note_date
+            )
+        """.trimIndent())
     }
 }

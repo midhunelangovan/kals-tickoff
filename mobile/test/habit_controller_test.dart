@@ -90,7 +90,7 @@ void main() {
     final initialHabit = Habit(
       id: 'h1',
       name: 'Journaling',
-      createdAt: DateTime.now(),
+      createdAt: yesterday.subtract(const Duration(days: 2)),
       completed: false,
       currentStreak: 1,
       selectedDate: yesterday,

@@ -11,6 +11,7 @@ abstract class HabitRepository {
     String icon = 'bolt',
     String? description,
     String? color,
+    DateTime? createdAt,
   });
 
   Future<Habit> updateHabit(

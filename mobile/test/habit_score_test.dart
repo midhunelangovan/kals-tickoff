@@ -105,17 +105,17 @@ void main() {
       expect(result.score.toStringAsFixed(1), '0.0');
     });
 
-    test('Case 6: Date change refreshes Habit Score for new selected date', () async {
+    test('Case 6: Date change updates selected date Habit Score', () async {
       final today = DateTime.now();
       final yesterday = today.subtract(const Duration(days: 1));
 
-      const todayScore = HabitScore(score: 66.7, completed: 2, total: 3);
-      const yesterdayScore = HabitScore(score: 33.3, completed: 1, total: 3);
+      const todayScore = HabitScore(score: 33.3, completed: 1, total: 3);
+      const yesterdayScore = HabitScore(score: 66.7, completed: 2, total: 3);
 
       when(() => mockRepository.getHabitScore(any()))
           .thenAnswer((invocation) async {
-        final dt = invocation.positionalArguments[0] as DateTime;
-        if (dt.day == yesterday.day) {
+        final date = invocation.positionalArguments[0] as DateTime;
+        if (date.day == yesterday.day) {
           return yesterdayScore;
         }
         return todayScore;
@@ -125,14 +125,20 @@ void main() {
           .thenAnswer((_) async => []);
 
       final container = createContainer();
-      await container.read(habitScoreProvider.future);
+      final initialScore = await container.read(habitScoreProvider.future);
+      expect(initialScore.score, 33.3);
+      expect(initialScore.completed, 1);
+      expect(initialScore.total, 3);
 
+      // Navigate to yesterday
       await container.read(habitControllerProvider.notifier).changeSelectedDate(yesterday);
       await pumpEventQueue();
 
+      // Score reflects yesterday's score
       final updatedScore = container.read(habitScoreProvider).value;
-      expect(updatedScore?.score, 33.3);
-      expect(updatedScore?.completed, 1);
+      expect(updatedScore?.score, 66.7);
+      expect(updatedScore?.completed, 2);
+      expect(updatedScore?.total, 3);
     });
 
     test('Case 7 & 8: Toggle completion updates optimistic score and reconciles with server', () async {

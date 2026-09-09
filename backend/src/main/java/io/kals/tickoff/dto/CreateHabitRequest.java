@@ -28,6 +28,9 @@ public class CreateHabitRequest {
     @Size(max = 50, message = "Color must be at most 50 characters")
     private String color;
 
+    private String createdAt;
+    private String createdDate;
+
     public CreateHabitRequest(String name) {
         this.name = name;
         this.icon = "bolt";

@@ -49,12 +49,15 @@ class HabitApiService {
     String icon = 'bolt',
     String? description,
     String? color,
+    DateTime? createdAt,
   }) async {
     final requestDto = CreateHabitRequestDto(
       name: name,
       icon: icon,
       description: description,
       color: color,
+      createdAt: createdAt != null ? _formatDate(createdAt) : null,
+      createdDate: createdAt != null ? _formatDate(createdAt) : null,
     );
     final response = await _dio.post<Map<String, dynamic>>(
       '/habits',

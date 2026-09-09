@@ -17,6 +17,7 @@ class Habit {
   final int sortOrder;
   final bool hasNote;
   final String? noteContent;
+  final Map<String, String> notesByDate;
 
   Set<String> get completions => completedDates;
 
@@ -37,13 +38,46 @@ class Habit {
     this.sortOrder = 0,
     this.hasNote = false,
     this.noteContent,
+    this.notesByDate = const {},
   });
 
-  bool isCompletedOn(dynamic date) {
-    if (date is DateTime) {
-      return completedDates.contains(formatDateKey(date));
+  String get createdDateKey => normalizeToLocalDateString(createdAt);
+
+  DateTime get createdAtDate {
+    final key = createdDateKey;
+    if (key.length >= 10) {
+      final parts = key.substring(0, 10).split('-');
+      if (parts.length == 3) {
+        final y = int.tryParse(parts[0]) ?? createdAt.year;
+        final m = int.tryParse(parts[1]) ?? createdAt.month;
+        final d = int.tryParse(parts[2]) ?? createdAt.day;
+        return DateTime(y, m, d);
+      }
     }
-    return completedDates.contains(date.toString());
+    return DateTime(createdAt.year, createdAt.month, createdAt.day);
+  }
+
+  /// Habits are global: if a habit exists, it is visible on every selected date to allow historical backfilling.
+  bool isApplicableOn(dynamic date) => !archived;
+
+  bool isCompletedOn(dynamic date) {
+    final dateKey = normalizeToLocalDateString(date);
+    if (dateKey.isEmpty) return false;
+    return completedDates.contains(dateKey);
+  }
+
+  bool hasNoteOn(dynamic date) {
+    final dateKey = normalizeToLocalDateString(date);
+    if (dateKey.isEmpty) return false;
+    final note = notesByDate[dateKey];
+    return note != null && note.trim().isNotEmpty;
+  }
+
+  String? noteOn(dynamic date) {
+    final dateKey = normalizeToLocalDateString(date);
+    if (dateKey.isEmpty) return null;
+    final note = notesByDate[dateKey];
+    return (note != null && note.trim().isNotEmpty) ? note.trim() : null;
   }
 
   Habit copyWith({
@@ -62,6 +96,8 @@ class Habit {
     int? sortOrder,
     bool? hasNote,
     String? noteContent,
+    bool clearNote = false,
+    Map<String, String>? notesByDate,
   }) {
     return Habit(
       id: id ?? this.id,
@@ -76,8 +112,9 @@ class Habit {
       selectedDate: selectedDate ?? this.selectedDate,
       completedDates: completions ?? completedDates ?? this.completedDates,
       sortOrder: sortOrder ?? this.sortOrder,
-      hasNote: hasNote ?? this.hasNote,
-      noteContent: noteContent ?? this.noteContent,
+      hasNote: clearNote ? false : (hasNote ?? this.hasNote),
+      noteContent: clearNote ? null : (noteContent ?? this.noteContent),
+      notesByDate: notesByDate ?? this.notesByDate,
     );
   }
 

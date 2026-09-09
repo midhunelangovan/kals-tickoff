@@ -4,6 +4,7 @@ import '../data/api_habit_repository.dart';
 import '../domain/habit.dart';
 import '../domain/habit_repository.dart';
 import '../domain/habit_score.dart';
+import '../domain/habit_score_calculator.dart';
 
 class SelectedDateNotifier extends Notifier<DateTime> {
   @override
@@ -58,7 +59,7 @@ class HabitScoreNotifier extends AsyncNotifier<HabitScore> {
     return _repository.getHabitScore(selectedDate);
   }
 
-  Future<void> refreshScore({DateTime? date}) async {
+  Future<void> refreshScore([DateTime? date]) async {
     final DateTime targetDate = date ?? ref.read(selectedDateProvider);
     state = await AsyncValue.guard(() => _repository.getHabitScore(targetDate));
   }
@@ -75,52 +76,106 @@ final habitControllerProvider =
 
 class HabitController extends AsyncNotifier<List<Habit>> {
   late final HabitRepository _repository;
+  List<Habit> _masterHabits = [];
+
+  List<Habit> _getApplicableHabitsFor(DateTime date) {
+    return _masterHabits
+        .where((h) => h.isApplicableOn(date))
+        .map((h) => h.copyWith(
+              completed: h.isCompletedOn(date),
+              hasNote: h.hasNoteOn(date),
+              noteContent: h.noteOn(date),
+              clearNote: !h.hasNoteOn(date),
+              selectedDate: date,
+            ))
+        .toList();
+  }
+
+  void _mergeMasterHabits(List<Habit> incoming) {
+    final map = {for (final h in _masterHabits) h.id: h};
+    for (final h in incoming) {
+      if (map.containsKey(h.id)) {
+        final existing = map[h.id]!;
+        final mergedNotes = Map<String, String>.from(existing.notesByDate);
+        mergedNotes.addAll(h.notesByDate);
+        if (h.selectedDate != null) {
+          final dateKey = formatDateKey(h.selectedDate!);
+          if (h.hasNote && h.noteContent != null && h.noteContent!.trim().isNotEmpty) {
+            mergedNotes[dateKey] = h.noteContent!.trim();
+          } else {
+            mergedNotes.remove(dateKey);
+          }
+        }
+
+        map[h.id] = existing.copyWith(
+          name: h.name,
+          icon: h.icon,
+          color: h.color,
+          description: h.description,
+          archived: h.archived,
+          sortOrder: h.sortOrder,
+          // CRITICAL: Preserve existing creation date so historical creation is never mutated
+          createdAt: existing.createdAt,
+          // Cumulative completion dates so historical completion records are preserved
+          completedDates: {...existing.completedDates, ...h.completedDates},
+          notesByDate: mergedNotes,
+        );
+      } else {
+        map[h.id] = h;
+      }
+    }
+    final list = map.values.toList();
+    list.sort((a, b) {
+      final cmp = a.sortOrder.compareTo(b.sortOrder);
+      if (cmp != 0) return cmp;
+      return b.createdAt.compareTo(a.createdAt);
+    });
+    _masterHabits = list;
+  }
 
   @override
-  FutureOr<List<Habit>> build() {
+  FutureOr<List<Habit>> build() async {
     _repository = ref.watch(apiHabitRepositoryProvider);
     final selectedDate = ref.watch(selectedDateProvider);
-    return _repository.getHabits(date: selectedDate);
+    final habits = await _repository.getHabits(date: selectedDate);
+    _mergeMasterHabits(habits);
+    return _getApplicableHabitsFor(selectedDate);
   }
 
   Future<void> loadHabits({DateTime? date}) async {
     final DateTime targetDate = date ?? ref.read(selectedDateProvider);
     state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() => _repository.getHabits(date: targetDate));
-    ref.read(habitScoreProvider.notifier).refreshScore(date: targetDate);
+    try {
+      final habits = await _repository.getHabits(date: targetDate);
+      _mergeMasterHabits(habits);
+      state = AsyncValue.data(_getApplicableHabitsFor(targetDate));
+      ref.read(habitScoreProvider.notifier).refreshScore(targetDate);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
   }
 
   Future<void> changeSelectedDate(DateTime newDate) async {
     // 1. Update selected date
     ref.read(selectedDateProvider.notifier).selectDate(newDate);
 
-    // 2. Immediate 0ms local state update for all habits
-    final currentHabits = state.value;
-    if (currentHabits != null) {
-      final instantUpdated = currentHabits.map((h) {
-        return h.copyWith(
-          completed: h.isCompletedOn(newDate),
-          selectedDate: newDate,
-        );
-      }).toList();
-      state = AsyncValue.data(instantUpdated);
+    // 2. Immediate 0ms local state update from master habits for newDate
+    final instantApplicable = _getApplicableHabitsFor(newDate);
+    state = AsyncValue.data(instantApplicable);
 
-      // Immediately calculate optimistic score for newDate
-      final total = instantUpdated.length;
-      final completed = instantUpdated.where((h) => h.isCompletedOn(newDate)).length;
-      final score = total > 0 ? ((completed / total) * 1000).round() / 10.0 : 0.0;
-      ref.read(habitScoreProvider.notifier).setOptimisticScore(
-        HabitScore(date: formatDateKey(newDate), score: score, completed: completed, total: total),
-      );
-    }
-
-    // 3. Immediately refresh Habit Score from backend for newDate
-    ref.read(habitScoreProvider.notifier).refreshScore(date: newDate);
+    // 3. Immediate 0ms local habit score update for selected date
+    final instantScore = HabitScoreCalculator.calculateForDate(
+      habits: _masterHabits,
+      date: newDate,
+    );
+    ref.read(habitScoreProvider.notifier).setOptimisticScore(instantScore);
 
     // 4. Silently synchronize with backend without full-screen loader
     try {
       final serverHabits = await _repository.getHabits(date: newDate);
-      state = AsyncValue.data(serverHabits);
+      _mergeMasterHabits(serverHabits);
+      state = AsyncValue.data(_getApplicableHabitsFor(newDate));
+      ref.read(habitScoreProvider.notifier).refreshScore(newDate);
     } catch (_) {
       // Keep optimistic state if network fails
     }
@@ -131,19 +186,24 @@ class HabitController extends AsyncNotifier<List<Habit>> {
     String icon = 'bolt',
     String? description,
     String? color,
+    DateTime? createdAt,
   }) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
+
+    final selectedDate = ref.read(selectedDateProvider);
+    final targetCreationDate = createdAt ?? selectedDate;
 
     final newHabit = await _repository.createHabit(
       trimmed,
       icon: icon,
       description: description,
       color: color,
+      createdAt: targetCreationDate,
     );
-    final currentHabits = state.value ?? [];
-    state = AsyncValue.data([newHabit, ...currentHabits]);
-    ref.read(habitScoreProvider.notifier).refreshScore(date: ref.read(selectedDateProvider));
+    _mergeMasterHabits([newHabit]);
+    state = AsyncValue.data(_getApplicableHabitsFor(selectedDate));
+    ref.read(habitScoreProvider.notifier).refreshScore(selectedDate);
   }
 
   Future<void> editHabit(
@@ -164,29 +224,30 @@ class HabitController extends AsyncNotifier<List<Habit>> {
       description: description,
     );
 
-    final currentHabits = state.value ?? [];
-    state = AsyncValue.data(
-      currentHabits.map((h) {
-        if (h.id == habitId) {
-          return h.copyWith(
-            name: updated.name,
-            icon: updated.icon,
-            color: updated.color,
-            description: updated.description,
-          );
-        }
-        return h;
-      }).toList(),
-    );
-    ref.read(habitScoreProvider.notifier).refreshScore(date: ref.read(selectedDateProvider));
+    _masterHabits = _masterHabits.map((h) {
+      if (h.id == habitId) {
+        return h.copyWith(
+          name: updated.name,
+          icon: updated.icon,
+          color: updated.color,
+          description: updated.description,
+        );
+      }
+      return h;
+    }).toList();
+
+    final selectedDate = ref.read(selectedDateProvider);
+    state = AsyncValue.data(_getApplicableHabitsFor(selectedDate));
+    ref.read(habitScoreProvider.notifier).refreshScore(selectedDate);
   }
 
   Future<void> deleteHabit(String habitId) async {
     await _repository.deleteHabit(habitId);
     ref.read(selectedHabitIdsProvider.notifier).clear();
-    final currentHabits = state.value ?? [];
-    state = AsyncValue.data(currentHabits.where((h) => h.id != habitId).toList());
-    ref.read(habitScoreProvider.notifier).refreshScore(date: ref.read(selectedDateProvider));
+    _masterHabits = _masterHabits.where((h) => h.id != habitId).toList();
+    final selectedDate = ref.read(selectedDateProvider);
+    state = AsyncValue.data(_getApplicableHabitsFor(selectedDate));
+    ref.read(habitScoreProvider.notifier).refreshScore(selectedDate);
   }
 
   Future<void> toggleCompletion(Habit habit, {DateTime? date}) async {
@@ -194,7 +255,6 @@ class HabitController extends AsyncNotifier<List<Habit>> {
     final String selectedDateStr = formatDateKey(selectedDate);
     final DateTime today = DateTime.now();
 
-    final previousList = state.value ?? [];
     final wasCompleted = habit.completed;
     final willComplete = !wasCompleted;
 
@@ -209,7 +269,7 @@ class HabitController extends AsyncNotifier<List<Habit>> {
     // 2. Calculate optimistic current streak strictly relative to TODAY
     final optimisticStreak = calculateCurrentStreak(updatedCompletedDates, today);
 
-    final updatedHabits = previousList.map((h) {
+    _masterHabits = _masterHabits.map((h) {
       if (h.id == habit.id) {
         return h.copyWith(
           completed: willComplete,
@@ -221,23 +281,15 @@ class HabitController extends AsyncNotifier<List<Habit>> {
       return h;
     }).toList();
 
-    state = AsyncValue.data(updatedHabits);
+    state = AsyncValue.data(_getApplicableHabitsFor(selectedDate));
 
-    // Optimistically update score for selectedDate
-    final currentScore = ref.read(habitScoreProvider).value;
-    if (currentScore != null && currentScore.total > 0) {
-      final newCompleted = (currentScore.completed + (willComplete ? 1 : -1)).clamp(0, currentScore.total);
-      final raw = (newCompleted / currentScore.total) * 100.0;
-      final newScore = (raw * 10).round() / 10.0;
-      ref.read(habitScoreProvider.notifier).setOptimisticScore(
-        HabitScore(
-          date: currentScore.date,
-          score: newScore,
-          completed: newCompleted,
-          total: currentScore.total,
-        ),
-      );
-    }
+    // Optimistically update selected-date Habit Score using pure HabitScoreCalculator
+    final optimisticScore = HabitScoreCalculator.calculateForDate(
+      habits: _masterHabits,
+      date: selectedDate,
+      enableLogging: true,
+    );
+    ref.read(habitScoreProvider.notifier).setOptimisticScore(optimisticScore);
 
     // 3. Send API request
     try {
@@ -245,7 +297,7 @@ class HabitController extends AsyncNotifier<List<Habit>> {
           ? await _repository.markCompleted(habit.id, selectedDate)
           : await _repository.unmarkCompleted(habit.id, selectedDate);
 
-      final reconciledList = (state.value ?? []).map((h) {
+      _masterHabits = _masterHabits.map((h) {
         if (h.id == habit.id) {
           final serverDates = serverResult.completedDates.isNotEmpty
               ? serverResult.completedDates
@@ -261,20 +313,35 @@ class HabitController extends AsyncNotifier<List<Habit>> {
         return h;
       }).toList();
 
-      state = AsyncValue.data(reconciledList);
-      ref.read(habitScoreProvider.notifier).refreshScore(date: selectedDate);
+      state = AsyncValue.data(_getApplicableHabitsFor(selectedDate));
+      ref.read(habitScoreProvider.notifier).refreshScore(selectedDate);
     } catch (error) {
       // Rollback on failure
-      state = AsyncValue.data(previousList);
+      updatedCompletedDates.remove(selectedDateStr);
+      if (wasCompleted) updatedCompletedDates.add(selectedDateStr);
+      _masterHabits = _masterHabits.map((h) {
+        if (h.id == habit.id) {
+          return h.copyWith(
+            completed: wasCompleted,
+            completedDates: updatedCompletedDates,
+            selectedDate: selectedDate,
+          );
+        }
+        return h;
+      }).toList();
+      state = AsyncValue.data(_getApplicableHabitsFor(selectedDate));
+
+      final rollbackScore = HabitScoreCalculator.calculateForDate(
+        habits: _masterHabits,
+        date: selectedDate,
+      );
+      ref.read(habitScoreProvider.notifier).setOptimisticScore(rollbackScore);
       rethrow;
     }
   }
 
   Future<void> reorderHabits(List<String> orderedIds) async {
-    final currentList = state.value;
-    if (currentList == null) return;
-
-    final habitMap = {for (final h in currentList) h.id: h};
+    final habitMap = {for (final h in _masterHabits) h.id: h};
     final reordered = <Habit>[];
     for (int i = 0; i < orderedIds.length; i++) {
       final h = habitMap[orderedIds[i]];
@@ -282,14 +349,15 @@ class HabitController extends AsyncNotifier<List<Habit>> {
         reordered.add(h.copyWith(sortOrder: i));
       }
     }
-    // Add any not in list
-    for (final h in currentList) {
+    for (final h in _masterHabits) {
       if (!orderedIds.contains(h.id)) {
         reordered.add(h);
       }
     }
+    _masterHabits = reordered;
 
-    state = AsyncValue.data(reordered);
+    final selectedDate = ref.read(selectedDateProvider);
+    state = AsyncValue.data(_getApplicableHabitsFor(selectedDate));
 
     try {
       await _repository.reorderHabits(orderedIds);
@@ -299,26 +367,24 @@ class HabitController extends AsyncNotifier<List<Habit>> {
   }
 
   void updateNoteState(String habitId, String dateStr, String? content) {
-    final currentList = state.value;
-    if (currentList == null) return;
+    final trimmed = (content != null && content.trim().isNotEmpty) ? content.trim() : null;
 
-    final updated = currentList.map((h) {
+    // 1. Update master habits notesByDate
+    _masterHabits = _masterHabits.map((h) {
       if (h.id == habitId) {
-        final currentSelectedStr = h.selectedDate != null
-            ? formatDateKey(h.selectedDate!)
-            : formatDateKey(DateTime.now());
-
-        if (currentSelectedStr == dateStr) {
-          final hasNote = content != null && content.trim().isNotEmpty;
-          return h.copyWith(
-            hasNote: hasNote,
-            noteContent: hasNote ? content.trim() : null,
-          );
+        final updatedNotes = Map<String, String>.from(h.notesByDate);
+        if (trimmed != null) {
+          updatedNotes[dateStr] = trimmed;
+        } else {
+          updatedNotes.remove(dateStr);
         }
+        return h.copyWith(notesByDate: updatedNotes);
       }
       return h;
     }).toList();
 
-    state = AsyncValue.data(updated);
+    // 2. Project state for currently selected date
+    final selectedDate = ref.read(selectedDateProvider);
+    state = AsyncValue.data(_getApplicableHabitsFor(selectedDate));
   }
 }

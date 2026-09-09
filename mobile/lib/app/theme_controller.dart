@@ -250,5 +250,45 @@ ThemeData buildCustomTheme(Color primaryColor, {bool isDark = false}) {
       selectionColor: shades.hover,
       selectionHandleColor: shades.primary,
     ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+      hintStyle: TextStyle(
+        color: isDark ? AppTheme.darkTextMuted : AppTheme.textMuted,
+        fontSize: 15,
+        fontWeight: FontWeight.w400,
+      ),
+      labelStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
+      floatingLabelStyle: TextStyle(
+        color: shades.primary,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: shades.primary, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFEF4444)),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
+      ),
+    ),
   );
 }
