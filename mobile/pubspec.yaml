@@ -55,9 +55,9 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon/app_icon_512.png"
+  image_path: "assets/icon/brain.png"
   adaptive_icon_background: "#FFF7ED"
-  adaptive_icon_foreground: "assets/icon/app_icon_512.png"
+  adaptive_icon_foreground: "assets/icon/brain.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -69,6 +69,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/logo/brain.svg
 
   # To add assets to your application, add an assets section, like this:
   # assets:
